@@ -16,9 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import resnet18
 from torchview import draw_graph
-
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
@@ -63,22 +61,22 @@ class ResNet18_CIFAR(nn.Module):
     def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
         # ============ Stem ============
-        self.conv1 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)   # 32×32 → 32×32
-        self.bn1   = nn.BatchNorm2d(64)
-        self.relu  = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)  # 32×32 → 32×32
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.Identity()
 
         # ============ Layer1 : 2 × BasicBlock, 64 → 64 ============
         # Block-1
         self.l1_b1_conv1 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l1_b1_bn1   = nn.BatchNorm2d(64)
+        self.l1_b1_bn1 = nn.BatchNorm2d(64)
         self.l1_b1_conv2 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l1_b1_bn2   = nn.BatchNorm2d(64)
+        self.l1_b1_bn2 = nn.BatchNorm2d(64)
         # Block-2
         self.l1_b2_conv1 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l1_b2_bn1   = nn.BatchNorm2d(64)
+        self.l1_b2_bn1 = nn.BatchNorm2d(64)
         self.l1_b2_conv2 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l1_b2_bn2   = nn.BatchNorm2d(64)
+        self.l1_b2_bn2 = nn.BatchNorm2d(64)
 
         # ============ Layer2 : 2 × BasicBlock, 64 → 128, stride=2 ============
         # Block-1
@@ -87,14 +85,14 @@ class ResNet18_CIFAR(nn.Module):
             nn.BatchNorm2d(128)
         )
         self.l2_b1_conv1 = nn.Conv2d(64, 128, 3, 2, 1, bias=False)  # 32 → 16
-        self.l2_b1_bn1   = nn.BatchNorm2d(128)
+        self.l2_b1_bn1 = nn.BatchNorm2d(128)
         self.l2_b1_conv2 = nn.Conv2d(128, 128, 3, 1, 1, bias=False)
-        self.l2_b1_bn2   = nn.BatchNorm2d(128)
+        self.l2_b1_bn2 = nn.BatchNorm2d(128)
         # Block-2
         self.l2_b2_conv1 = nn.Conv2d(128, 128, 3, 1, 1, bias=False)
-        self.l2_b2_bn1   = nn.BatchNorm2d(128)
+        self.l2_b2_bn1 = nn.BatchNorm2d(128)
         self.l2_b2_conv2 = nn.Conv2d(128, 128, 3, 1, 1, bias=False)
-        self.l2_b2_bn2   = nn.BatchNorm2d(128)
+        self.l2_b2_bn2 = nn.BatchNorm2d(128)
 
         # ============ Layer3 : 2 × BasicBlock, 128 → 256, stride=2 ============
         self.ds3 = nn.Sequential(
@@ -102,14 +100,14 @@ class ResNet18_CIFAR(nn.Module):
             nn.BatchNorm2d(256)
         )
         self.l3_b1_conv1 = nn.Conv2d(128, 256, 3, 2, 1, bias=False)  # 16 → 8
-        self.l3_b1_bn1   = nn.BatchNorm2d(256)
+        self.l3_b1_bn1 = nn.BatchNorm2d(256)
         self.l3_b1_conv2 = nn.Conv2d(256, 256, 3, 1, 1, bias=False)
-        self.l3_b1_bn2   = nn.BatchNorm2d(256)
+        self.l3_b1_bn2 = nn.BatchNorm2d(256)
         # Block-2
         self.l3_b2_conv1 = nn.Conv2d(256, 256, 3, 1, 1, bias=False)
-        self.l3_b2_bn1   = nn.BatchNorm2d(256)
+        self.l3_b2_bn1 = nn.BatchNorm2d(256)
         self.l3_b2_conv2 = nn.Conv2d(256, 256, 3, 1, 1, bias=False)
-        self.l3_b2_bn2   = nn.BatchNorm2d(256)
+        self.l3_b2_bn2 = nn.BatchNorm2d(256)
 
         # ============ Layer4 : 2 × BasicBlock, 256 → 512, stride=2 ============
         self.ds4 = nn.Sequential(
@@ -117,18 +115,18 @@ class ResNet18_CIFAR(nn.Module):
             nn.BatchNorm2d(512)
         )
         self.l4_b1_conv1 = nn.Conv2d(256, 512, 3, 2, 1, bias=False)  # 8 → 4
-        self.l4_b1_bn1   = nn.BatchNorm2d(512)
+        self.l4_b1_bn1 = nn.BatchNorm2d(512)
         self.l4_b1_conv2 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
-        self.l4_b1_bn2   = nn.BatchNorm2d(512)
+        self.l4_b1_bn2 = nn.BatchNorm2d(512)
         # Block-2
         self.l4_b2_conv1 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
-        self.l4_b2_bn1   = nn.BatchNorm2d(512)
+        self.l4_b2_bn1 = nn.BatchNorm2d(512)
         self.l4_b2_conv2 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
-        self.l4_b2_bn2   = nn.BatchNorm2d(512)
+        self.l4_b2_bn2 = nn.BatchNorm2d(512)
 
         # ============ Head ============
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc      = nn.Linear(512, num_classes)
+        self.fc = nn.Linear(512, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -158,39 +156,41 @@ class ResNet18_CIFAR(nn.Module):
     # ---------- Forward ----------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Stem
-        x = self.conv1(x); x = self.bn1(x); x = self.relu(x)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
         x = self.maxpool(x)
 
         # Layer1
         x = self._basic_block(x, self.l1_b1_conv1, self.l1_b1_bn1,
-                                 self.l1_b1_conv2, self.l1_b1_bn2)
+                              self.l1_b1_conv2, self.l1_b1_bn2)
         x = self._basic_block(x, self.l1_b2_conv1, self.l1_b2_bn1,
-                                 self.l1_b2_conv2, self.l1_b2_bn2)
+                              self.l1_b2_conv2, self.l1_b2_bn2)
 
         # Layer2
         x = self._basic_block(x, self.l2_b1_conv1, self.l2_b1_bn1,
-                                 self.l2_b1_conv2, self.l2_b1_bn2,
-                                 downsample=self.ds2)
+                              self.l2_b1_conv2, self.l2_b1_bn2,
+                              downsample=self.ds2)
         x = self._basic_block(x, self.l2_b2_conv1, self.l2_b2_bn1,
-                                 self.l2_b2_conv2, self.l2_b2_bn2)
+                              self.l2_b2_conv2, self.l2_b2_bn2)
 
         # Layer3
         x = self._basic_block(x, self.l3_b1_conv1, self.l3_b1_bn1,
-                                 self.l3_b1_conv2, self.l3_b1_bn2,
-                                 downsample=self.ds3)
+                              self.l3_b1_conv2, self.l3_b1_bn2,
+                              downsample=self.ds3)
         x = self._basic_block(x, self.l3_b2_conv1, self.l3_b2_bn1,
-                                 self.l3_b2_conv2, self.l3_b2_bn2)
+                              self.l3_b2_conv2, self.l3_b2_bn2)
 
         # Layer4
         x = self._basic_block(x, self.l4_b1_conv1, self.l4_b1_bn1,
-                                 self.l4_b1_conv2, self.l4_b1_bn2,
-                                 downsample=self.ds4)
+                              self.l4_b1_conv2, self.l4_b1_bn2,
+                              downsample=self.ds4)
         x = self._basic_block(x, self.l4_b2_conv1, self.l4_b2_bn1,
-                                 self.l4_b2_conv2, self.l4_b2_bn2)
+                              self.l4_b2_conv2, self.l4_b2_bn2)
 
         # Head
         x = self.avgpool(x).flatten(1)  # (B,512)
-        return self.fc(x)               # (B,num_classes)
+        return self.fc(x)  # (B,num_classes)
 
 
 @torch.no_grad()
@@ -253,9 +253,9 @@ def main():
         random.seed(worker_seed)
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch, shuffle=True, generator=g,
-                                           num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=256, shuffle=False,generator=g,
-                                          num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
+                                               num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=256, shuffle=False, generator=g,
+                                              num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
 
     model = ResNet18_CIFAR(num_classes=10).to(device)
     # model_graph = draw_graph(model, input_size=(1, 3, 32, 32), expand_nested=True)
@@ -266,7 +266,7 @@ def main():
     opt = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     # opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max = args.epochs, eta_min = 0)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, eta_min=0)
 
     best_acc = -1.0
 
