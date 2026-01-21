@@ -16,9 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-
 from torchview import draw_graph
-
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
@@ -107,8 +105,8 @@ def count_flops_params(
             param_formula += f" + {c_out}"
         param_formula_dict[layer] = param_formula
 
-        flops = k_h * k_w * c_in // groups * c_out * h_out * w_out
-        flops_dict[layer] = flops
+        layer_flops = k_h * k_w * c_in // groups * c_out * h_out * w_out
+        flops_dict[layer] = layer_flops
         flops_formula = f"{k_h}×{k_w}×{c_in}×{c_out}×{h_out}×{w_out}"
         if groups > 1:
             flops_formula += f" // {groups}"
@@ -180,7 +178,7 @@ def count_flops_params(
     print(f"Total Params: {total_params:,}")
     print(
         f"Total FLOPs : {total_flops:,} "
-        f"(≈ {total_flops/1e6:.2f} MFLOPs / {total_flops/1e9:.2f} GFLOPs)"
+        f"(≈ {total_flops / 1e6:.2f} MFLOPs / {total_flops / 1e9:.2f} GFLOPs)"
     )
 
     return total_params, total_flops
@@ -191,26 +189,26 @@ class Encoder(nn.Module):
         super().__init__()
         # ------- Stem -------
         self.conv1 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
-        self.bn1   = nn.BatchNorm2d(64)
-        self.relu  = nn.ReLU(inplace=True)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.Identity()
 
         # ------- layer2_x : 3 × BasicBlock, 64 → 64 -------
         # Block-1
         self.l2_b1_conv1 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l2_b1_bn1   = nn.BatchNorm2d(64)
+        self.l2_b1_bn1 = nn.BatchNorm2d(64)
         self.l2_b1_conv2 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l2_b1_bn2   = nn.BatchNorm2d(64)
+        self.l2_b1_bn2 = nn.BatchNorm2d(64)
         # Block-2
         self.l2_b2_conv1 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l2_b2_bn1   = nn.BatchNorm2d(64)
+        self.l2_b2_bn1 = nn.BatchNorm2d(64)
         self.l2_b2_conv2 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l2_b2_bn2   = nn.BatchNorm2d(64)
+        self.l2_b2_bn2 = nn.BatchNorm2d(64)
         # Block-3
         self.l2_b3_conv1 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l2_b3_bn1   = nn.BatchNorm2d(64)
+        self.l2_b3_bn1 = nn.BatchNorm2d(64)
         self.l2_b3_conv2 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
-        self.l2_b3_bn2   = nn.BatchNorm2d(64)
+        self.l2_b3_bn2 = nn.BatchNorm2d(64)
 
         # ===== layer3_x : 4 × BasicBlock, 64 → 128, stride=2 =====
         self.ds3 = nn.Sequential(nn.Conv2d(64, 128, 1, 2, bias=False),
@@ -286,8 +284,8 @@ class Encoder(nn.Module):
         self.l5_b3_conv2 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
         self.l5_b3_bn2 = nn.BatchNorm2d(512)
 
-        self.pool4   = nn.Identity()           # 4 → 4
-        self.to_nc   = nn.Conv2d(512, nc, 1, bias=False)
+        self.pool4 = nn.Identity()  # 4 → 4
+        self.to_nc = nn.Conv2d(512, nc, 1, bias=False)
         self.to_nc_bn = nn.BatchNorm2d(nc)
 
         for m in self.modules():
@@ -310,51 +308,53 @@ class Encoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Stem
-        x = self.conv1(x); x = self.bn1(x); x = self.relu(x)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
         x = self.maxpool(x)
 
         # layer2_x (3 blocks)
         x = self._basic_block(x, self.l2_b1_conv1, self.l2_b1_bn1,
-                                 self.l2_b1_conv2, self.l2_b1_bn2)
+                              self.l2_b1_conv2, self.l2_b1_bn2)
         x = self._basic_block(x, self.l2_b2_conv1, self.l2_b2_bn1,
-                                 self.l2_b2_conv2, self.l2_b2_bn2)
+                              self.l2_b2_conv2, self.l2_b2_bn2)
         x = self._basic_block(x, self.l2_b3_conv1, self.l2_b3_bn1,
-                                 self.l2_b3_conv2, self.l2_b3_bn2)
+                              self.l2_b3_conv2, self.l2_b3_bn2)
 
         # layer3_x
         x = self._basic_block(x, self.l3_b1_conv1, self.l3_b1_bn1,
-                                 self.l3_b1_conv2, self.l3_b1_bn2, downsample=self.ds3)
+                              self.l3_b1_conv2, self.l3_b1_bn2, downsample=self.ds3)
         x = self._basic_block(x, self.l3_b2_conv1, self.l3_b2_bn1,
-                                 self.l3_b2_conv2, self.l3_b2_bn2)
+                              self.l3_b2_conv2, self.l3_b2_bn2)
         x = self._basic_block(x, self.l3_b3_conv1, self.l3_b3_bn1,
-                                 self.l3_b3_conv2, self.l3_b3_bn2)
+                              self.l3_b3_conv2, self.l3_b3_bn2)
         x = self._basic_block(x, self.l3_b4_conv1, self.l3_b4_bn1,
-                                 self.l3_b4_conv2, self.l3_b4_bn2)
+                              self.l3_b4_conv2, self.l3_b4_bn2)
 
         # layer4_x
         x = self._basic_block(x, self.l4_b1_conv1, self.l4_b1_bn1,
-                                 self.l4_b1_conv2, self.l4_b1_bn2, downsample=self.ds4)
+                              self.l4_b1_conv2, self.l4_b1_bn2, downsample=self.ds4)
         x = self._basic_block(x, self.l4_b2_conv1, self.l4_b2_bn1,
-                                 self.l4_b2_conv2, self.l4_b2_bn2)
+                              self.l4_b2_conv2, self.l4_b2_bn2)
         x = self._basic_block(x, self.l4_b3_conv1, self.l4_b3_bn1,
-                                 self.l4_b3_conv2, self.l4_b3_bn2)
+                              self.l4_b3_conv2, self.l4_b3_bn2)
         x = self._basic_block(x, self.l4_b4_conv1, self.l4_b4_bn1,
-                                 self.l4_b4_conv2, self.l4_b4_bn2)
+                              self.l4_b4_conv2, self.l4_b4_bn2)
         x = self._basic_block(x, self.l4_b5_conv1, self.l4_b5_bn1,
-                                 self.l4_b5_conv2, self.l4_b5_bn2)
+                              self.l4_b5_conv2, self.l4_b5_bn2)
         x = self._basic_block(x, self.l4_b6_conv1, self.l4_b6_bn1,
-                                 self.l4_b6_conv2, self.l4_b6_bn2)
+                              self.l4_b6_conv2, self.l4_b6_bn2)
 
         # layer5_x
         x = self._basic_block(x, self.l5_b1_conv1, self.l5_b1_bn1,
-                                 self.l5_b1_conv2, self.l5_b1_bn2, downsample=self.ds5)
+                              self.l5_b1_conv2, self.l5_b1_bn2, downsample=self.ds5)
         x = self._basic_block(x, self.l5_b2_conv1, self.l5_b2_bn1,
-                                 self.l5_b2_conv2, self.l5_b2_bn2)
+                              self.l5_b2_conv2, self.l5_b2_bn2)
         x = self._basic_block(x, self.l5_b3_conv1, self.l5_b3_bn1,
-                                 self.l5_b3_conv2, self.l5_b3_bn2)
+                              self.l5_b3_conv2, self.l5_b3_bn2)
 
-        x = self.pool4(x)                           # (B,512,4,4)
-        x = self.relu(self.to_nc_bn(self.to_nc(x))) # (B,nc,4,4)
+        x = self.pool4(x)  # (B,512,4,4)
+        x = self.relu(self.to_nc_bn(self.to_nc(x)))  # (B,nc,4,4)
         z = F.adaptive_avg_pool2d(x, 1).flatten(1)  # (B,nc)
         z = F.normalize(z, p=2.0, dim=1, eps=1e-8) * math.sqrt(z.size(1))
         return z
@@ -399,7 +399,7 @@ class Decoder(nn.Module):
 
         # ----- Head -----
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc      = nn.Linear(512, num_classes)
+        self.fc = nn.Linear(512, num_classes)
 
         for m in self.modules():
             if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
@@ -436,6 +436,7 @@ class CommClassifier(nn.Module):
     """
     Encoder → AWGN → Decoder
     """
+
     def __init__(self, nc: int, snr_db: float, use_awgn: bool = True, num_classes: int = 100):
         super().__init__()
         self.last_dec_time = None
@@ -527,9 +528,9 @@ def main():
         random.seed(worker_seed)
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch, shuffle=True, generator=g,
-                                           num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=256, shuffle=False,generator=g,
-                                          num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
+                                               num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=256, shuffle=False, generator=g,
+                                              num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
 
     model = CommClassifier(nc=1024, snr_db=5, use_awgn=True, num_classes=100).to(device)
     count_flops_params(model, input_size=(1, 3, 32, 32))
@@ -539,7 +540,7 @@ def main():
     opt = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     # opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max = args.epochs, eta_min = 0)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, eta_min=0)
 
     best_acc = -1.0
 
