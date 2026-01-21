@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-
 from torchview import draw_graph
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -106,8 +105,8 @@ def count_flops_params(
             param_formula += f" + {c_out}"
         param_formula_dict[layer] = param_formula
 
-        flops = k_h * k_w * c_in // groups * c_out * h_out * w_out
-        flops_dict[layer] = flops
+        layer_flops = k_h * k_w * c_in // groups * c_out * h_out * w_out
+        flops_dict[layer] = layer_flops
         flops_formula = f"{k_h}×{k_w}×{c_in}×{c_out}×{h_out}×{w_out}"
         if groups > 1:
             flops_formula += f" // {groups}"
@@ -207,8 +206,8 @@ class Encoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Stem
-        x = self.conv1(x);
-        x = self.bn1(x);
+        x = self.conv1(x)
+        x = self.bn1(x)
         x = self.relu(x)  # (B,64,32,32)
         x = self.maxpool(x)  # (B,64,4,4)
 
