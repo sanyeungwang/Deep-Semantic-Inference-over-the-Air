@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import resnet18
 from torchview import draw_graph
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -33,6 +32,7 @@ def parse_args():
     p.add_argument('--lr', type=float, default=0.1, help='initial learning rate')
     p.add_argument('--workers', type=int, default=6, help='#dataloader workers')
     p.add_argument('--seed', type=int, default=42, help='random seed')
+    p.add_argument('--use-awgn', type=bool, default=True, help='Use AWGN in training and eval')
     return p.parse_args()
 
 
@@ -58,16 +58,36 @@ def init_logger(run_name, log_dir="logs"):
     return logger
 
 
-class ResNet18_CIFAR(nn.Module):
-    def __init__(self, num_classes: int = 100) -> None:
+# Convert given SNR[dB] to SNR[linear] to sigma[standard deviation of AWGN noise]
+def snr_db_to_sigma(snr_db):
+    # print(snr_db)  # 3, Signal-to-Noise Ratio snr=3
+    snr_linear = math.pow(10.0, snr_db / 10.0)
+    # print(snr_linear)  # 1.9952623149688795, +3 dB corresponds to approximately a doubling of power.
+    # print('sigma', 1.0 / math.sqrt(snr_linear))  # 0.7079457843841379
+    return 1.0 / math.sqrt(snr_linear)
+
+
+# Inject Additive White Gaussian Noise into the feature vector according to standard deviation sigma
+class AWGN(nn.Module):
+    def __init__(self, snr_db):
         super().__init__()
-        # ============ Stem ============
-        self.conv1 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)  # 32×32 → 32×32
+        self.sigma = snr_db_to_sigma(snr_db)
+
+    def forward(self, x):
+        # print(x.shape)  # torch.Size([128, 10]), batch_size=128, nc=10
+        noise = torch.randn_like(x, device=x.device) * self.sigma  # noise generation
+        return x + noise
+
+
+class Encoder(nn.Module):
+    def __init__(self, nc: int = 256):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.Identity()
 
-        # ============ Layer1 : 2 × BasicBlock, 64 → 64 ============
+        # ---- layer1 : 2 × BasicBlock, 64→64 ----
         # Block-1
         self.l1_b1_conv1 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
         self.l1_b1_bn1 = nn.BatchNorm2d(64)
@@ -79,47 +99,93 @@ class ResNet18_CIFAR(nn.Module):
         self.l1_b2_conv2 = nn.Conv2d(64, 64, 3, 1, 1, bias=False)
         self.l1_b2_bn2 = nn.BatchNorm2d(64)
 
-        # ============ Layer2 : 2 × BasicBlock, 64 → 128, stride=2 ============
-        # Block-1
-        self.ds2 = nn.Sequential(
-            nn.Conv2d(64, 128, 1, 2, bias=False),
-            nn.BatchNorm2d(128)
+        self.pool4 = nn.AvgPool2d(8)  # 32→4
+        self.to_nc = nn.Conv2d(64, nc, 1, bias=False)
+        self.to_nc_bn = nn.BatchNorm2d(nc)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        for name, mod in self.named_modules():
+            if isinstance(mod, nn.BatchNorm2d) and name.endswith('bn2'):
+                nn.init.constant_(mod.weight, 0)
+
+    @staticmethod
+    def _basic_block(x, conv1, bn1, conv2, bn2):
+        identity = x
+        out = F.relu(bn1(conv1(x)), inplace=True)
+        out = bn2(conv2(out))
+        return F.relu(out + identity, inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Stem
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        # layer1
+        x = self._basic_block(x, self.l1_b1_conv1, self.l1_b1_bn1,
+                              self.l1_b1_conv2, self.l1_b1_bn2)
+        x = self._basic_block(x, self.l1_b2_conv1, self.l1_b2_bn1,
+                              self.l1_b2_conv2, self.l1_b2_bn2)
+
+        x = self.pool4(x)  # (B,64,4,4)
+        x = self.relu(self.to_nc_bn(self.to_nc(x)))  # (B,nc,4,4)
+        z = F.adaptive_avg_pool2d(x, 1).flatten(1)  # (B,nc)
+        z = F.normalize(z, p=2.0, dim=1, eps=1e-8) * math.sqrt(z.size(1))
+        return z
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return super().__call__(x)
+
+
+class Decoder(nn.Module):
+    def __init__(self, nc: int = 256, num_classes: int = 10):
+        super().__init__()
+        # ---- nc → 64×32×32 ----
+        self.restore = nn.Sequential(
+            nn.Unflatten(1, (nc, 1, 1)),
+            nn.ConvTranspose2d(nc, 64, 32, 32, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
         )
-        self.l2_b1_conv1 = nn.Conv2d(64, 128, 3, 2, 1, bias=False)  # 32 → 16
+
+        # ===== layer2 : 2 × BasicBlock, 64→128, stride=2 =====
+        self.ds2 = nn.Sequential(nn.Conv2d(64, 128, 1, 2, bias=False),
+                                 nn.BatchNorm2d(128))
+        self.l2_b1_conv1 = nn.Conv2d(64, 128, 3, 2, 1, bias=False)  # 32→16
         self.l2_b1_bn1 = nn.BatchNorm2d(128)
         self.l2_b1_conv2 = nn.Conv2d(128, 128, 3, 1, 1, bias=False)
         self.l2_b1_bn2 = nn.BatchNorm2d(128)
-        # Block-2
         self.l2_b2_conv1 = nn.Conv2d(128, 128, 3, 1, 1, bias=False)
         self.l2_b2_bn1 = nn.BatchNorm2d(128)
         self.l2_b2_conv2 = nn.Conv2d(128, 128, 3, 1, 1, bias=False)
         self.l2_b2_bn2 = nn.BatchNorm2d(128)
 
-        # ============ Layer3 : 2 × BasicBlock, 128 → 256, stride=2 ============
-        self.ds3 = nn.Sequential(
-            nn.Conv2d(128, 256, 1, 2, bias=False),
-            nn.BatchNorm2d(256)
-        )
-        self.l3_b1_conv1 = nn.Conv2d(128, 256, 3, 2, 1, bias=False)  # 16 → 8
+        # ===== layer3 : 2 × BasicBlock, 128→256, stride=2 =====
+        self.ds3 = nn.Sequential(nn.Conv2d(128, 256, 1, 2, bias=False),
+                                 nn.BatchNorm2d(256))
+        self.l3_b1_conv1 = nn.Conv2d(128, 256, 3, 2, 1, bias=False)  # 16→8
         self.l3_b1_bn1 = nn.BatchNorm2d(256)
         self.l3_b1_conv2 = nn.Conv2d(256, 256, 3, 1, 1, bias=False)
         self.l3_b1_bn2 = nn.BatchNorm2d(256)
-        # Block-2
         self.l3_b2_conv1 = nn.Conv2d(256, 256, 3, 1, 1, bias=False)
         self.l3_b2_bn1 = nn.BatchNorm2d(256)
         self.l3_b2_conv2 = nn.Conv2d(256, 256, 3, 1, 1, bias=False)
         self.l3_b2_bn2 = nn.BatchNorm2d(256)
 
-        # ============ Layer4 : 2 × BasicBlock, 256 → 512, stride=2 ============
-        self.ds4 = nn.Sequential(
-            nn.Conv2d(256, 512, 1, 2, bias=False),
-            nn.BatchNorm2d(512)
-        )
-        self.l4_b1_conv1 = nn.Conv2d(256, 512, 3, 2, 1, bias=False)  # 8 → 4
+        # ===== layer4 : 2 × BasicBlock, 256→512, stride=2 =====
+        self.ds4 = nn.Sequential(nn.Conv2d(256, 512, 1, 2, bias=False),
+                                 nn.BatchNorm2d(512))
+        self.l4_b1_conv1 = nn.Conv2d(256, 512, 3, 2, 1, bias=False)  # 8→4
         self.l4_b1_bn1 = nn.BatchNorm2d(512)
         self.l4_b1_conv2 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
         self.l4_b1_bn2 = nn.BatchNorm2d(512)
-        # Block-2
         self.l4_b2_conv1 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
         self.l4_b2_bn1 = nn.BatchNorm2d(512)
         self.l4_b2_conv2 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
@@ -129,7 +195,7 @@ class ResNet18_CIFAR(nn.Module):
         self.fc = nn.Linear(512, num_classes)
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
@@ -143,62 +209,86 @@ class ResNet18_CIFAR(nn.Module):
                 nn.init.constant_(mod.weight, 0)
 
     @staticmethod
-    def _basic_block(x: torch.Tensor,
-                     conv1: nn.Module, bn1: nn.Module,
-                     conv2: nn.Module, bn2: nn.Module,
-                     downsample: nn.Module = None) -> torch.Tensor:
+    def _basic_block(x, conv1, bn1, conv2, bn2, downsample=None):
         identity = x if downsample is None else downsample(x)
         out = F.relu(bn1(conv1(x)), inplace=True)
         out = bn2(conv2(out))
         return F.relu(out + identity, inplace=True)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Stem
-        x = self.conv1(x);
-        x = self.bn1(x);
-        x = self.relu(x)
-        x = self.maxpool(x)
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = self.restore(z)  # 64×32×32
 
-        # Layer1
-        x = self._basic_block(x, self.l1_b1_conv1, self.l1_b1_bn1,
-                              self.l1_b1_conv2, self.l1_b1_bn2)
-        x = self._basic_block(x, self.l1_b2_conv1, self.l1_b2_bn1,
-                              self.l1_b2_conv2, self.l1_b2_bn2)
-
-        # Layer2
+        # layer2
         x = self._basic_block(x, self.l2_b1_conv1, self.l2_b1_bn1,
-                              self.l2_b1_conv2, self.l2_b1_bn2,
-                              downsample=self.ds2)
+                              self.l2_b1_conv2, self.l2_b1_bn2, downsample=self.ds2)
         x = self._basic_block(x, self.l2_b2_conv1, self.l2_b2_bn1,
                               self.l2_b2_conv2, self.l2_b2_bn2)
 
-        # Layer3
+        # layer3
         x = self._basic_block(x, self.l3_b1_conv1, self.l3_b1_bn1,
-                              self.l3_b1_conv2, self.l3_b1_bn2,
-                              downsample=self.ds3)
+                              self.l3_b1_conv2, self.l3_b1_bn2, downsample=self.ds3)
         x = self._basic_block(x, self.l3_b2_conv1, self.l3_b2_bn1,
                               self.l3_b2_conv2, self.l3_b2_bn2)
 
-        # Layer4
+        # layer4
         x = self._basic_block(x, self.l4_b1_conv1, self.l4_b1_bn1,
-                              self.l4_b1_conv2, self.l4_b1_bn2,
-                              downsample=self.ds4)
+                              self.l4_b1_conv2, self.l4_b1_bn2, downsample=self.ds4)
         x = self._basic_block(x, self.l4_b2_conv1, self.l4_b2_bn1,
                               self.l4_b2_conv2, self.l4_b2_bn2)
 
-        x = self.avgpool(x).flatten(1)  # (B,512)
-        return self.fc(x)  # (B,num_classes)
+        x = self.avgpool(x).flatten(1)
+        return self.fc(x)
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return super().__call__(x)
+
+
+class CommClassifier(nn.Module):
+    """
+    Encoder → AWGN → Decoder
+    """
+
+    def __init__(self, nc: int, snr_db: float, use_awgn: bool = True, num_classes: int = 10):
+        super().__init__()
+        self.last_dec_time = None
+        self.last_enc_time = None
+        self.encoder = Encoder(nc)
+        self.channel = AWGN(snr_db) if use_awgn else nn.Identity()
+        self.decoder = Decoder(nc, num_classes=num_classes)
+
+    def forward(self, x):
+        start_enc = time.time()
+        z_tx = self.encoder(x)
+        enc_time = time.time() - start_enc
+        z_rx = self.channel(z_tx)
+        start_dec = time.time()
+        logits = self.decoder(z_rx)
+        dec_time = time.time() - start_dec
+        self.last_enc_time = enc_time
+        self.last_dec_time = dec_time
+        return logits
 
 
 @torch.no_grad()
 def evaluate(model, loader, device):
     model.eval()
     correct = total = 0
+    enc_times = []
+    dec_times = []
     for x, y in loader:
         x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
         pred = model(x).argmax(dim=1)
+
+        enc_times.append(model.last_enc_time)
+        dec_times.append(model.last_dec_time)
+
         correct += (pred == y).sum().item()
         total += y.size(0)
+
+    # avg_enc = sum(enc_times) / len(enc_times)
+    # avg_dec = sum(dec_times) / len(dec_times)
+    # print(f"Avg encoder time: {avg_enc * 1000:.2f} ms  Avg decoder time: {avg_dec * 1000:.2f} ms")
+
     return correct / total
 
 
@@ -206,7 +296,7 @@ def main():
     args = parse_args()
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    base_name = f"comm_cifar100_nc{args.nc}_snr{args.snr}"
+    base_name = f"comm_cifar10_nc{args.nc}_snr{args.snr}"
     run_name = f"{base_name}_{ts}"
     logger = init_logger(run_name)
 
@@ -238,8 +328,8 @@ def main():
 
     # transform = transforms.ToTensor()  # scales pixels to [0, 1]
 
-    train_set = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
-    test_set = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+    train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+    test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
 
     g = torch.Generator()
     g.manual_seed(args.seed)
@@ -254,7 +344,9 @@ def main():
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=256, shuffle=False, generator=g,
                                               num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
 
-    model = ResNet18_CIFAR(num_classes=100).to(device)
+    model = CommClassifier(args.nc, args.snr, use_awgn=args.use_awgn, num_classes=10).to(device)
+    # model_graph = draw_graph(model, input_size=(1, 3, 32, 32), expand_nested=True)
+    # model_graph.visual_graph.render(filename="comm_cifar10_resnet18_match_cifar_split", format="pdf", cleanup=True)
 
     loss_fn = nn.CrossEntropyLoss()
 
@@ -283,6 +375,10 @@ def main():
 
             running_loss += loss.item()
             lr_now = opt.param_groups[0]['lr']
+
+            # enc_t = model.last_enc_time
+            # dec_t = model.last_dec_time
+            # logger.info(f"Step:{step} Encoder_time: {enc_t * 1000:.2f} ms  Decoder_time: {dec_t * 1000:.2f} ms")
 
             if step % freq == 0 or step == len(train_loader):
                 now = time.time()
