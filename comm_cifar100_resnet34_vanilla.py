@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import resnet34
 from torchview import draw_graph
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -193,8 +192,8 @@ class ResNet34_CIFAR(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # ---- Stem ----
-        x = self.conv1(x);
-        x = self.bn1(x);
+        x = self.conv1(x)
+        x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)  # Identity
 
