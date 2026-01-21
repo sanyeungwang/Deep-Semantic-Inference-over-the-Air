@@ -55,7 +55,7 @@ logger.setLevel(logging.INFO)
 fmt = logging.Formatter("%(asctime)s,%(msecs)03d %(message)s", "%Y-%m-%d %H:%M:%S")
 for h in (logging.FileHandler(LOG_PATH, encoding="utf-8"),
           logging.StreamHandler(sys.stdout)):
-    h.setFormatter(fmt);
+    h.setFormatter(fmt)
     logger.addHandler(h)
 logger.propagate = False
 logger.info(f"Logging to {LOG_PATH}")
