@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import resnet18
 from torchview import draw_graph
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -59,7 +58,7 @@ def init_logger(run_name, log_dir="logs"):
 
 
 class ResNet18_CIFAR(nn.Module):
-    def __init__(self, num_classes: int = 100) -> None:
+    def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
         # ============ Stem ============
         self.conv1 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)  # 32×32 → 32×32
@@ -125,6 +124,7 @@ class ResNet18_CIFAR(nn.Module):
         self.l4_b2_conv2 = nn.Conv2d(512, 512, 3, 1, 1, bias=False)
         self.l4_b2_bn2 = nn.BatchNorm2d(512)
 
+        # ============ Head ============
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(512, num_classes)
 
@@ -142,6 +142,7 @@ class ResNet18_CIFAR(nn.Module):
             if isinstance(mod, nn.BatchNorm2d) and name.endswith('bn2'):
                 nn.init.constant_(mod.weight, 0)
 
+    # ---------- BasicBlock Helper ----------
     @staticmethod
     def _basic_block(x: torch.Tensor,
                      conv1: nn.Module, bn1: nn.Module,
@@ -152,10 +153,11 @@ class ResNet18_CIFAR(nn.Module):
         out = bn2(conv2(out))
         return F.relu(out + identity, inplace=True)
 
+    # ---------- Forward ----------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Stem
-        x = self.conv1(x);
-        x = self.bn1(x);
+        x = self.conv1(x)
+        x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
 
@@ -186,6 +188,7 @@ class ResNet18_CIFAR(nn.Module):
         x = self._basic_block(x, self.l4_b2_conv1, self.l4_b2_bn1,
                               self.l4_b2_conv2, self.l4_b2_bn2)
 
+        # Head
         x = self.avgpool(x).flatten(1)  # (B,512)
         return self.fc(x)  # (B,num_classes)
 
@@ -206,7 +209,7 @@ def main():
     args = parse_args()
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    base_name = f"comm_cifar100_nc{args.nc}_snr{args.snr}"
+    base_name = f"comm_cifar10_nc{args.nc}_snr{args.snr}"
     run_name = f"{base_name}_{ts}"
     logger = init_logger(run_name)
 
@@ -238,8 +241,8 @@ def main():
 
     transform = transforms.ToTensor()  # scales pixels to [0, 1]
 
-    train_set = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform)
-    test_set = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
+    train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
 
     g = torch.Generator()
     g.manual_seed(args.seed)
@@ -254,7 +257,9 @@ def main():
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=256, shuffle=False, generator=g,
                                               num_workers=args.workers, pin_memory=True, worker_init_fn=_worker_init)
 
-    model = ResNet18_CIFAR(num_classes=100).to(device)
+    model = ResNet18_CIFAR(num_classes=10).to(device)
+    # model_graph = draw_graph(model, input_size=(1, 3, 32, 32), expand_nested=True)
+    # model_graph.visual_graph.render(filename="comm_cifar10_resnet18_match_cifar", format="pdf", cleanup=True)
 
     loss_fn = nn.CrossEntropyLoss()
 
