@@ -33,8 +33,8 @@ log_beta = np.log10(beta)
 
 
 # Linear function: y = b + beta * a
-def y_func(beta, b, a):
-    return b + beta * a
+def y_func(beta_val, b, a):
+    return b + beta_val * a
 
 
 # Data series for SP-2, SP-3, SP-4
