@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import resnet34
 from torchview import draw_graph
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -69,6 +68,9 @@ class AWGN(nn.Module):
     def __init__(self, snr_db):
         super().__init__()
         self.sigma = snr_db_to_sigma(snr_db)
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return super().__call__(x)
 
     def forward(self, x):
         noise = torch.randn_like(x, device=x.device) * self.sigma  # noise generation
@@ -211,8 +213,8 @@ class ResNet34_CIFAR(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # ---- Stem ----
-        x = self.conv1(x);
-        x = self.bn1(x);
+        x = self.conv1(x)
+        x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)  # Identity
 
@@ -319,15 +321,15 @@ def main():
     backbone = ResNet34_CIFAR(num_classes=100).to(device)
 
     class NoisyNet(nn.Module):
-        def __init__(self, snr_db: float, backbone: nn.Module):
+        def __init__(self, snr_db: float, backbone_net: nn.Module):
             super().__init__()
             self.channel = AWGN(snr_db)
-            self.backbone = backbone
+            self.backbone = backbone_net
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            x = F.normalize(x, p=2.0, dim=1, eps=1e-8) * math.sqrt(x.size(1))
-            x = self.channel(x)
-            return self.backbone(x)
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            inputs = F.normalize(inputs, p=2.0, dim=1, eps=1e-8) * math.sqrt(inputs.size(1))
+            inputs = self.channel(inputs)
+            return self.backbone(inputs)
 
     model = NoisyNet(args.snr, backbone).to(device)
 
