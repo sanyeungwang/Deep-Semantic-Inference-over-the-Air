@@ -4,7 +4,7 @@ This repository is the implementation of the paper "Deep Semantic Inference over
 [[Paper(arXiv)]](https://arxiv.org/abs/2508.12748)
 
 <div align="center">
-    <img src=./flowchart.svg>
+    <img src=./flowchart.png>
 </div>
 
 ## Datasets
