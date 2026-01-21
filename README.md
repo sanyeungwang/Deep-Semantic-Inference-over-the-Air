@@ -24,3 +24,29 @@ This project was developed with:
 ```
  python comm_cifar100_resnet34_SP-2.py
 ```
+
+## Results
+
+The results shown in Fig. 3 and Fig. 4 are obtained through the following pipeline:
+
+1. `plot_all.py`
+2. `plot_all_column.py` / `plot_all_row.py`
+3. `merged_column.py` / `merged_row.py`
+
+## Visualization
+
+Fig. 5 and Fig. 6 are generated using the following scripts, respectively:
+
+- `plot_beta_t.py`
+- `plot_snrdb_t.py`
+
+<table align="center" width="100%">
+  <tr>
+    <td align="center" width="50%">
+      <img src="./tcomp_vs_log_beta.png" width="100%">
+    </td>
+    <td align="center" width="50%">
+      <img src="./tcomm_vs_snrdb.png" width="100%">
+    </td>
+  </tr>
+</table>
