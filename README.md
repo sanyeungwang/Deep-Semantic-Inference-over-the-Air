@@ -1,7 +1,7 @@
 # Deep-Semantic-Inference-over-the-Air
 
 This repository is the implementation of the paper "Deep Semantic Inference over the Air: An Efficient Task-Oriented Communication System"
-[[Paper(arXiv)]](https://arxiv.org/abs/2508.12748)
+[[Paper(arXiv)]](https://arxiv.org/abs/2508.12748v2)
 
 <div align="center">
     <img src=./flowchart.png>
@@ -43,10 +43,10 @@ Fig. 5 and Fig. 6 are generated using the following scripts, respectively:
 <table align="center" width="100%">
   <tr>
     <td align="center" width="50%">
-      <img src="./tcomp_vs_log_beta.png" width="100%">
+      <img src="./tcomp_vs_log_beta.png" width="50%">
     </td>
     <td align="center" width="50%">
-      <img src="./tcomm_vs_snrdb.png" width="100%">
+      <img src="./tcomm_vs_snrdb.png" width="50%">
     </td>
   </tr>
 </table>
