@@ -50,3 +50,20 @@ Fig. 5 and Fig. 6 are generated using the following scripts, respectively:
     </td>
   </tr>
 </table>
+
+## Citation
+If you found this code or our work useful, please cite our paper.
+```
+@INPROCEEDINGS{Wang2604:Deep,
+AUTHOR={Chenyang Wang and Roger Olsson and Stefan {Forsstr{\"o}m} and Qing He},
+TITLE="Deep Semantic Inference over the Air: An Efficient {Task-Oriented}
+Communication System",
+BOOKTITLE="2026 IEEE Wireless Communications and Networking Conference (WCNC): WCNC
+2026 Track 3: WCNC 2026 Track 3: Machine Learning and Optimization for
+Wireless Systems (WCNC 2026 Track 3)",
+ADDRESS="Kuala Lumpur, Malaysia",
+PAGES="5.98",
+DAYS=13,
+MONTH=apr,
+YEAR=2026
+```
