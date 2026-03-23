@@ -1,6 +1,6 @@
 # Deep-Semantic-Inference-over-the-Air
 
-This repository is the implementation of the paper "Deep Semantic Inference over the Air: An Efficient Task-Oriented Communication System"
+This repository is the official implementation of the paper "Deep Semantic Inference over the Air: An Efficient Task-Oriented Communication System"
 [[Paper(arXiv)]](https://arxiv.org/abs/2508.12748v2)
 
 <div align="center">
